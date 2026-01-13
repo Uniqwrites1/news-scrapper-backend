@@ -17,6 +17,9 @@ class Article(Base):
     is_security_related = Column(Boolean, default=False)
     locations = Column(Text)  # Comma-separated
     incident_type = Column(String(100))
+    topic = Column(String(50), default='general', index=True)  # security, traffic, politics, business, etc.
+    is_priority = Column(Boolean, default=False, index=True)  # Flag for Abuja traffic/security
+    priority_reason = Column(String(200))  # Why it's marked as priority
     
     def __repr__(self):
-        return f"<Article(title='{self.title}', source='{self.source}')>"
+        return f"<Article(title='{self.title}', source='{self.source}', topic='{self.topic}')>"

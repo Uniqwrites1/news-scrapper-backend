@@ -20,14 +20,16 @@ def get_articles(
     source: str = Query(None),
     location: str = Query(None),
     incident_type: str = Query(None),
+    topic: str = Query(None),  # New: filter by topic
+    priority_only: bool = Query(False),  # New: show only priority articles (Abuja traffic/security)
     days: int = Query(7, ge=1),
     db: Session = Depends(get_db)
 ):
     """
     Get filtered articles. Default returns last 7 days.
+    Filter by topic, location, source, incident type, and more.
     """
     query = db.query(Article).filter(
-        Article.is_security_related == True,
         Article.published_date >= datetime.utcnow() - timedelta(days=days)
     )
     
@@ -39,6 +41,12 @@ def get_articles(
     
     if incident_type:
         query = query.filter(Article.incident_type == incident_type)
+    
+    if topic:  # New filter
+        query = query.filter(Article.topic == topic)
+    
+    if priority_only:  # New filter
+        query = query.filter(Article.is_priority == True)
     
     total = query.count()
     articles = query.order_by(desc(Article.published_date)).offset(skip).limit(limit).all()
@@ -57,50 +65,77 @@ def get_articles(
                 "published_date": a.published_date.isoformat() if a.published_date else None,
                 "locations": a.locations.split(",") if a.locations else [],
                 "incident_type": a.incident_type,
+                "topic": a.topic,  # New field
+                "is_priority": a.is_priority,  # New field
+                "priority_reason": a.priority_reason,  # New field
             }
             for a in articles
         ]
     }
 
 
+
 @router.get("/api/statistics", tags=["analytics"])
 def get_statistics(
     days: int = Query(7, ge=1),
+    topic: str = Query(None),  # New: filter by topic
     db: Session = Depends(get_db)
 ):
     """
     Get analytics for the selected period.
+    Includes statistics by topic, source, location, and priority articles.
     """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
     
-    total_articles = db.query(func.count(Article.id)).filter(
-        Article.is_security_related == True,
+    base_query = db.query(Article).filter(
         Article.published_date >= cutoff_date
-    ).scalar()
+    )
+    
+    if topic:
+        base_query = base_query.filter(Article.topic == topic)
+    
+    total_articles = base_query.count()
     
     # By source
     by_source = db.query(
         Article.source,
         func.count(Article.id).label('count')
     ).filter(
-        Article.is_security_related == True,
         Article.published_date >= cutoff_date
-    ).group_by(Article.source).all()
+    )
+    if topic:
+        by_source = by_source.filter(Article.topic == topic)
+    by_source = by_source.group_by(Article.source).all()
+    
+    # By topic (NEW)
+    by_topic_query = db.query(
+        Article.topic,
+        func.count(Article.id).label('count')
+    ).filter(
+        Article.published_date >= cutoff_date
+    ).group_by(Article.topic).all()
     
     # By incident type
     by_incident = db.query(
         Article.incident_type,
         func.count(Article.id).label('count')
     ).filter(
-        Article.is_security_related == True,
         Article.published_date >= cutoff_date
-    ).group_by(Article.incident_type).all()
+    )
+    if topic:
+        by_incident = by_incident.filter(Article.topic == topic)
+    by_incident = by_incident.group_by(Article.incident_type).all()
+    
+    # Priority articles (Abuja traffic/security)
+    priority_articles = db.query(
+        func.count(Article.id)
+    ).filter(
+        Article.is_priority == True,
+        Article.published_date >= cutoff_date
+    ).scalar()
     
     # Get top locations
-    articles = db.query(Article).filter(
-        Article.is_security_related == True,
-        Article.published_date >= cutoff_date
-    ).all()
+    articles = base_query.all()
     
     location_counts = {}
     for article in articles:
@@ -114,10 +149,13 @@ def get_statistics(
     return {
         "period_days": days,
         "total_articles": total_articles,
+        "priority_articles": priority_articles,  # New: Abuja traffic/security
         "by_source": [{"source": s, "count": c} for s, c in by_source],
+        "by_topic": [{"topic": t, "count": c} for t, c in by_topic_query],  # New
         "by_incident_type": [{"type": t, "count": c} for t, c in by_incident],
         "top_locations": [{"location": loc, "count": count} for loc, count in top_locations],
     }
+
 
 
 @router.post("/api/scrape-now", tags=["admin"])
@@ -148,6 +186,17 @@ def get_incident_types(db: Session = Depends(get_db)):
     """
     types = db.query(Article.incident_type).distinct().all()
     return {"incident_types": [t[0] for t in types if t[0]]}
+
+
+@router.get("/api/topics", tags=["metadata"])
+def get_topics(db: Session = Depends(get_db)):
+    """
+    Get list of all available topics.
+    """
+    from services.classifier import TOPIC_KEYWORDS
+    topics = list(TOPIC_KEYWORDS.keys())
+    return {"topics": topics}
+
 
 
 @router.get("/api/locations", tags=["metadata"])

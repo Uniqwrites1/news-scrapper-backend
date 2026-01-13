@@ -1,6 +1,60 @@
 import re
 
-# Security-related keywords
+# Topic/Category Keywords (comprehensive for ALL news types)
+TOPIC_KEYWORDS = {
+    'security': {
+        'keywords': ['security', 'police', 'military', 'kidnap', 'terrorism', 'boko haram', 'armed', 'attack', 'crime', 'violence', 'murder', 'robbery', 'cultism'],
+        'weight': 3,
+        'priority_locations': ['Abuja', 'FCT', 'Lagos', 'Kaduna']
+    },
+    'traffic': {
+        'keywords': ['traffic', 'road', 'accident', 'crash', 'highway', 'congestion', 'gridlock', 'vehicle', 'lane closure', 'diversion'],
+        'weight': 2,
+        'priority_locations': ['Abuja', 'FCT', 'Lagos']
+    },
+    'politics': {
+        'keywords': ['election', 'political', 'government', 'minister', 'senator', 'governor', 'parliament', 'senate', 'house of representatives', 'presidency', 'campaign'],
+        'weight': 2,
+        'priority_locations': ['Abuja', 'FCT']
+    },
+    'business': {
+        'keywords': ['business', 'economy', 'trade', 'market', 'stock', 'investment', 'company', 'corporate', 'financial', 'commerce', 'commercial'],
+        'weight': 1,
+        'priority_locations': ['Lagos', 'Abuja']
+    },
+    'technology': {
+        'keywords': ['tech', 'technology', 'innovation', 'digital', 'software', 'internet', 'startup', 'app', 'artificial intelligence', 'ai'],
+        'weight': 1,
+        'priority_locations': ['Lagos', 'Abuja']
+    },
+    'health': {
+        'keywords': ['health', 'medical', 'disease', 'hospital', 'healthcare', 'epidemic', 'covid', 'vaccine', 'pandemic', 'disease'],
+        'weight': 1,
+        'priority_locations': []
+    },
+    'education': {
+        'keywords': ['education', 'school', 'university', 'student', 'academic', 'exam', 'waec', 'jamb', 'neco', 'school'],
+        'weight': 1,
+        'priority_locations': []
+    },
+    'entertainment': {
+        'keywords': ['entertainment', 'music', 'movie', 'film', 'celebrity', 'actor', 'actress', 'song', 'award', 'show'],
+        'weight': 1,
+        'priority_locations': ['Lagos']
+    },
+    'sports': {
+        'keywords': ['sports', 'football', 'soccer', 'match', 'game', 'player', 'team', 'league', 'champion', 'tournament'],
+        'weight': 1,
+        'priority_locations': []
+    },
+    'weather': {
+        'keywords': ['weather', 'rain', 'flood', 'storm', 'temperature', 'climate', 'forecast', 'rainfall'],
+        'weight': 1,
+        'priority_locations': []
+    },
+}
+
+# Security-related keywords (kept for backward compatibility)
 SECURITY_KEYWORDS = {
     'security': 1,
     'police': 2,
@@ -125,7 +179,7 @@ LOCATION_KEYWORDS = {
     'f.c.t': 'FCT',
 }
 
-# Incident types
+# Incident types (security-specific)
 INCIDENT_PATTERNS = {
     'kidnapping': r'\b(kidnap|abduct|abduction|hostage|ransom)\b',
     'armed_robbery': r'\b(armed robbery|robbery|robbed|armed gang)\b',
@@ -135,6 +189,38 @@ INCIDENT_PATTERNS = {
     'military_operation': r'\b(military operation|raid|air strike|sting operation)\b',
     'communal_conflict': r'\b(communal clash|land dispute|inter-ethnic|border dispute)\b',
 }
+
+
+def classify_topic(article_title: str, article_summary: str) -> tuple[str, int]:
+    """
+    Classify article into a topic category.
+    Returns: (topic, priority) where priority=0 for normal, 1 for priority
+    """
+    text = (article_title + ' ' + article_summary).lower()
+    
+    best_topic = 'general'
+    best_score = 0
+    is_priority = 0
+    
+    # Check each topic category
+    for topic, config in TOPIC_KEYWORDS.items():
+        score = 0
+        for keyword in config['keywords']:
+            if keyword in text:
+                score += config['weight']
+        
+        if score > best_score:
+            best_score = score
+            best_topic = topic
+            
+            # Check if this is a priority topic (traffic or security in Abuja)
+            if topic in ['traffic', 'security']:
+                # Extract locations from article
+                locations = extract_locations(article_title, article_summary)
+                if any(loc in config['priority_locations'] for loc in locations):
+                    is_priority = 1
+    
+    return best_topic if best_score > 0 else 'general', is_priority
 
 
 def is_security_related(article_title: str, article_summary: str) -> tuple[bool, int]:

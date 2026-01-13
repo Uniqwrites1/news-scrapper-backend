@@ -5,8 +5,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Major Nigerian news sources with RSS feeds
+# Major Nigerian news sources with RSS feeds (25+ outlets covering all topics)
 NIGERIAN_NEWS_FEEDS = {
+    # Security News Sources
     'punch': 'https://punchng.com/feed/',
     'vanguard': 'https://www.vanguardngr.com/feed/',
     'premium_times': 'https://www.premiumtimesng.com/feed',
@@ -17,6 +18,29 @@ NIGERIAN_NEWS_FEEDS = {
     'sahara_reporters': 'https://saharareporters.com/feed',
     'thisday': 'https://www.thisdaylive.com/feed/',
     'nation': 'https://thenationonlineng.net/feed/',
+    
+    # General News & Politics
+    'naija_info': 'https://www.naija.com/feed/',
+    'tvc_news': 'https://www.tvcnews.tv/feed/',
+    'pulse_nigeria': 'https://www.pulse.ng/feed/',
+    'linda_ikejis_blog': 'https://www.lindaikejisblog.com/feed/',
+    'legit_ng': 'https://www.legit.ng/feed/',
+    
+    # Business & Economics
+    'business_day': 'https://businessday.ng/feed/',
+    'nairametrics': 'https://nairametrics.com/feed/',
+    'techcabal': 'https://techcabal.com/feed/',
+    
+    # Tech & Innovation
+    'tekedia': 'https://tekedia.com/feed/',
+    'disrupt_africa': 'https://disrupt-africa.com/feed/',
+    
+    # Entertainment & Lifestyle
+    'genevieve_mag': 'https://genevievemagazine.com/feed/',
+    'bellanaija': 'https://www.bellanaija.com/feed/',
+    
+    # Sports
+    'sports_ng': 'https://www.sports.ng/feed/',
 }
 
 

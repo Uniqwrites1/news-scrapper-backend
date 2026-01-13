@@ -5,7 +5,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from scrapers.rss_scraper import fetch_all_feeds
-from services.classifier import classify_article
+from services.classifier import classify_article, classify_topic, is_security_related, extract_locations
 from models.article import Article
 from database.db import SessionLocal
 
@@ -17,6 +17,7 @@ scheduler = BackgroundScheduler()
 def scrape_and_save_articles():
     """
     Main job: Fetch articles and save to database.
+    Now saves all articles and classifies them by topic.
     """
     logger.info(f"Starting scheduled scrape at {datetime.now()}")
     
@@ -27,6 +28,7 @@ def scrape_and_save_articles():
         # Save to database
         db = SessionLocal()
         saved_count = 0
+        skipped_count = 0
         
         for article_data in articles:
             try:
@@ -37,40 +39,69 @@ def scrape_and_save_articles():
                 
                 if existing:
                     logger.info(f"Article already exists: {article_data['title'][:50]}")
+                    skipped_count += 1
                     continue
                 
-                # Classify article
-                classification = classify_article(
+                # Get security classification (for backward compatibility)
+                security_check = is_security_related(
+                    article_data['title'],
+                    article_data['summary']
+                )
+                is_sec = security_check[0]
+                security_score = security_check[1]
+                
+                # Get topic classification
+                topic, is_priority = classify_topic(
                     article_data['title'],
                     article_data['summary']
                 )
                 
-                # Only save if security-related
-                if classification['is_security_related']:
-                    article = Article(
-                        title=article_data['title'],
-                        link=article_data['link'],
-                        summary=article_data['summary'],
-                        source=article_data['source'],
-                        published_date=article_data['published_date'],
-                        is_security_related=True,
-                        locations=','.join(classification['locations']),
-                        incident_type=classification['incident_type'],
-                    )
-                    db.add(article)
-                    saved_count += 1
+                # Extract locations
+                locations = extract_locations(
+                    article_data['title'],
+                    article_data['summary']
+                )
+                
+                # Get incident type using existing classifier
+                incident_class = classify_article(
+                    article_data['title'],
+                    article_data['summary']
+                )
+                
+                # Save ALL articles now (not just security-related)
+                priority_reason = None
+                if is_priority:
+                    priority_reason = f"Priority: {topic} news from {', '.join(locations) if locations else 'Nigeria'}"
+                
+                article = Article(
+                    title=article_data['title'],
+                    link=article_data['link'],
+                    summary=article_data['summary'],
+                    source=article_data['source'],
+                    published_date=article_data['published_date'],
+                    is_security_related=is_sec,
+                    locations=','.join(locations) if locations else 'Nigeria',
+                    incident_type=incident_class['incident_type'],
+                    topic=topic,  # New field
+                    is_priority=is_priority,  # New field
+                    priority_reason=priority_reason,  # New field
+                )
+                db.add(article)
+                saved_count += 1
             
             except Exception as e:
                 logger.error(f"Error processing article: {e}")
+                skipped_count += 1
                 continue
         
         db.commit()
         db.close()
         
-        logger.info(f"Scrape completed. Saved {saved_count} security-related articles")
+        logger.info(f"Scrape completed. Saved {saved_count} articles, skipped {skipped_count}")
         
     except Exception as e:
         logger.error(f"Error in scheduled scrape: {e}")
+
 
 
 def start_scheduler():
