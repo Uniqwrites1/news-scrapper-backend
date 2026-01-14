@@ -2,6 +2,8 @@ import feedparser
 from datetime import datetime
 from typing import List, Dict
 import logging
+import re
+from html import unescape
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,38 @@ def parse_feed_date(date_str: str) -> datetime:
         return datetime.utcnow()
 
 
+def clean_html_content(html_content: str) -> str:
+    """
+    Remove HTML tags and clean up the content.
+    Handles self-closing tags, script/style content, and various HTML entities.
+    """
+    if not html_content or not isinstance(html_content, str):
+        return ''
+
+    # Remove script and style tags and their content
+    clean_text = re.sub(r'<(script|style).*?</\1>(?s)', '', html_content)
+    
+    # Remove HTML comments
+    clean_text = re.sub(r'<!--.*?-->', '', clean_text, flags=re.DOTALL)
+    
+    # Remove all HTML tags
+    clean_text = re.sub(r'<[^>]+>', ' ', clean_text)
+    
+    # Replace multiple spaces and newlines with a single space
+    clean_text = re.sub(r'\s+', ' ', clean_text)
+    
+    # Convert HTML entities to their corresponding characters
+    clean_text = unescape(clean_text)
+    
+    # Remove any remaining HTML entities (in case some weren't handled by unescape)
+    clean_text = re.sub(r'&[a-z0-9]+;', ' ', clean_text)
+    
+    # Clean up any remaining whitespace
+    clean_text = clean_text.strip()
+    
+    return clean_text
+
+
 def fetch_single_feed(feed_url: str, source_name: str) -> List[Dict]:
     """
     Fetch articles from a single RSS feed.
@@ -84,10 +118,13 @@ def fetch_single_feed(feed_url: str, source_name: str) -> List[Dict]:
         
         for entry in feed.entries[:20]:  # Limit to 20 most recent
             try:
+                # Clean the summary/description
+                summary = entry.get('summary', '') or entry.get('description', '')
+                
                 article = {
-                    'title': entry.get('title', 'No title'),
+                    'title': clean_html_content(entry.get('title', 'No title')),
                     'link': entry.get('link', ''),
-                    'summary': entry.get('summary', '') or entry.get('description', ''),
+                    'summary': clean_html_content(summary),
                     'source': source_name,
                     'published_date': None,
                 }

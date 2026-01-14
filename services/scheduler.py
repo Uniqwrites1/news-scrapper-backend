@@ -1,10 +1,10 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from sqlalchemy.orm import Session
 
-from scrapers.rss_scraper import fetch_all_feeds
+from scrapers.rss_scraper import fetch_all_feeds, clean_html_content
 from services.classifier import classify_article, classify_topic, is_security_related, extract_locations
 from models.article import Article
 from database.db import SessionLocal
@@ -42,30 +42,26 @@ def scrape_and_save_articles():
                     skipped_count += 1
                     continue
                 
-                # Get security classification (for backward compatibility)
-                security_check = is_security_related(
-                    article_data['title'],
-                    article_data['summary']
-                )
+                # Clean the title and summary before processing
+                clean_title = clean_html_content(article_data['title'])
+                clean_summary = clean_html_content(article_data['summary'])
+                
+                # Get security classification
+                security_check = is_security_related(clean_title, clean_summary)
                 is_sec = security_check[0]
                 security_score = security_check[1]
                 
                 # Get topic classification
-                topic, is_priority = classify_topic(
-                    article_data['title'],
-                    article_data['summary']
-                )
+                topic, is_priority = classify_topic(clean_title, clean_summary)
                 
                 # Extract locations
-                locations = extract_locations(
-                    article_data['title'],
-                    article_data['summary']
-                )
+                locations = extract_locations(clean_title, clean_summary)
                 
-                # Get incident type using existing classifier
+                # Get incident type using classifier
                 incident_class = classify_article(
-                    article_data['title'],
-                    article_data['summary']
+                    clean_title, 
+                    clean_summary,
+                    source=article_data['source']
                 )
                 
                 # Save ALL articles now (not just security-related)
@@ -73,16 +69,17 @@ def scrape_and_save_articles():
                 if is_priority:
                     priority_reason = f"Priority: {topic} news from {', '.join(locations) if locations else 'Nigeria'}"
                 
+                # Use cleaned content for the database
                 article = Article(
-                    title=article_data['title'],
+                    title=clean_title,
                     link=article_data['link'],
-                    summary=article_data['summary'],
+                    summary=clean_summary,
                     source=article_data['source'],
                     published_date=article_data['published_date'],
                     is_security_related=is_sec,
                     locations=','.join(locations) if locations else 'Nigeria',
-                    incident_type=incident_class['incident_type'],
-                    topic=topic,  # New field
+                    incident_type=incident_class.get('incident_type', 'other'),
+                    topic=incident_class.get('topic', topic),
                     is_priority=is_priority,  # New field
                     priority_reason=priority_reason,  # New field
                 )
@@ -129,3 +126,41 @@ def stop_scheduler():
     if scheduler.running:
         scheduler.shutdown()
         logger.info("Scheduler stopped")
+
+
+def clean_existing_articles():
+    """
+    Clean HTML from existing articles in the database.
+    Should be run once after updating to the new version.
+    """
+    db = SessionLocal()
+    try:
+        # Get articles from the last 30 days to limit the scope
+        cutoff_date = datetime.utcnow() - timedelta(days=30)
+        articles = db.query(Article).filter(
+            Article.published_date >= cutoff_date
+        ).all()
+        
+        updated_count = 0
+        for article in articles:
+            # Clean the content
+            clean_title = clean_html_content(article.title)
+            clean_summary = clean_html_content(article.summary)
+            
+            # Only update if content changed
+            if clean_title != article.title or clean_summary != article.summary:
+                article.title = clean_title
+                article.summary = clean_summary
+                updated_count += 1
+        
+        if updated_count > 0:
+            db.commit()
+            logger.info(f"Cleaned HTML from {updated_count} articles")
+        else:
+            logger.info("No articles needed cleaning")
+            
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error cleaning articles: {e}")
+    finally:
+        db.close()
